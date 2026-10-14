@@ -34,7 +34,7 @@
 #include "probe_unix.h"
 #endif
 
-#define MAX_PROBES 1024
+#define MAX_PROBES 10240
 
 /*  Use the "jumbo" frame size as the max packet size  */
 #define PACKET_BUFFER_SIZE 9000
@@ -69,7 +69,7 @@ struct probe_param_t {
     int type_of_service;
 
     /*  The packet "mark" used for mark-based routing on Linux  */
-    int routing_mark;
+    uint32_t routing_mark;
 
     /*  Time to live for the transmitted probe  */
     int ttl;

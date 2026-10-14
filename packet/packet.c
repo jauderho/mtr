@@ -28,22 +28,65 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#ifdef HAVE_SYS_SOCKET_H
+#include <sys/socket.h>
+#endif
 
 #ifdef HAVE_LIBCAP
 #include <sys/capability.h>
 #endif
 
+#include "utils.h"
+
 #include "wait.h"
+
+#ifdef HAVE_LIBCAP
+static
+void drop_all_capabilities()
+{
+    cap_t wanted_cap = cap_get_proc();
+
+    if (!wanted_cap) {
+        goto pcap_error;
+    }
+
+    if (cap_clear(wanted_cap)) {
+        goto pcap_error;
+    }
+
+    /*
+       mtr-packet opens any sockets that need elevated privileges before this
+       point.  Do not keep capabilities in the permitted set for later
+       re-enabling: once privilege is dropped, later packet handling must not be
+       able to regain it.
+
+       Every socket option applied per probe after this point must therefore
+       work without privilege.  See set_bind_to_device() in construct_unix.c
+       for how SO_BINDTODEVICE, which needs CAP_NET_RAW to re-bind an already
+       bound socket, is kept to a single unprivileged bind per socket.
+     */
+    if (cap_set_proc(wanted_cap)) {
+        goto pcap_error;
+    }
+
+    if (cap_free(wanted_cap)) {
+        goto pcap_error;
+    }
+
+    return;
+
+pcap_error:
+
+    cap_free(wanted_cap);
+    error(EXIT_FAILURE, errno, "Failed to drop capabilities");
+}
+#endif /* ifdef HAVE_LIBCAP */
 
 /*  Drop SUID privileges.  To be used after acquiring raw sockets.  */
 static
 int drop_elevated_permissions(
     void)
 {
-#ifdef HAVE_LIBCAP
-    cap_t cap;
-#endif
-
     /*  Drop any suid permissions granted  */
     if (setgid(getgid()) || setuid(getuid())) {
         return -1;
@@ -54,20 +97,10 @@ int drop_elevated_permissions(
     }
 
     /*
-       Drop all process capabilities.
-       This will revoke anything granted by a commandline 'setcap'
+       Drop all process capabilities permanently.
      */
 #ifdef HAVE_LIBCAP
-    cap = cap_get_proc();
-    if (cap == NULL) {
-        return -1;
-    }
-    if (cap_clear(cap)) {
-        return -1;
-    }
-    if (cap_set_proc(cap)) {
-        return -1;
-    }
+    drop_all_capabilities();
 #endif
 
     return 0;
